@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=LoadWhistler
+Exec=LoadWhister
+Icon=icon
+Type=Application
+Categories=AudioVideo;Audio;Player;
+X-AppImage-Version=2.0.0.0
