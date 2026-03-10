@@ -24,7 +24,8 @@ class PlayMode(Enum):
 
 
 class Player:
-    def __init__(self) -> None:
+    def __init__(self, initial_volume: float = 0.8,
+                 initial_mode: PlayMode = PlayMode.GROUP_LOOP) -> None:
         import pygame
         pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=512)
         pygame.mixer.init()
@@ -32,8 +33,8 @@ class Player:
 
         self._playlist: list[str] = []
         self._current_index: int = 0
-        self._mode: PlayMode = PlayMode.GROUP_LOOP
-        self._volume: float = 0.8
+        self._mode: PlayMode = initial_mode
+        self._volume: float = max(0.0, min(1.0, initial_volume))
         self._playing: bool = False
         self._paused: bool = False
         self._lock = threading.Lock()
@@ -111,6 +112,43 @@ class Player:
             except Exception:
                 pass
 
+    def skip_next(self) -> None:
+        """次のトラックへ（RANDOM_LOOP時は無効）。"""
+        with self._lock:
+            if not self._playlist or self._mode == PlayMode.RANDOM_LOOP:
+                return
+            next_idx = (self._current_index + 1) % len(self._playlist)
+        self._load_and_play(next_idx)
+
+    def skip_prev(self) -> None:
+        """前のトラックへ。再生位置が1秒超なら先頭に戻るだけ（RANDOM_LOOP時は無効）。"""
+        with self._lock:
+            if not self._playlist or self._mode == PlayMode.RANDOM_LOOP:
+                return
+            pos, _ = self._get_position_locked()
+            if pos > 1.0:
+                # 先頭に戻るだけ
+                seek_to = 0.0
+                do_prev = False
+            else:
+                seek_to = 0.0
+                do_prev = True
+            prev_idx = (self._current_index - 1) % len(self._playlist)
+
+        if do_prev:
+            self._load_and_play(prev_idx)
+        else:
+            self.seek(seek_to)
+
+    def _get_position_locked(self) -> tuple[float, float]:
+        """ロック取得済みの状態で現在位置を返す内部メソッド。"""
+        if self._playing and not self._paused and self._track_start_time > 0:
+            elapsed = time.monotonic() - self._track_start_time
+            pos = self._track_offset + elapsed
+        else:
+            pos = self._track_offset
+        return min(pos, self._track_length), self._track_length
+
     def set_volume(self, volume: float) -> None:
         self._volume = max(0.0, min(1.0, volume))
         self._pygame.mixer.music.set_volume(self._volume)
@@ -148,12 +186,7 @@ class Player:
 
     def get_position(self) -> tuple[float, float]:
         with self._lock:
-            if self._playing and not self._paused and self._track_start_time > 0:
-                elapsed = time.monotonic() - self._track_start_time
-                pos = self._track_offset + elapsed
-            else:
-                pos = self._track_offset
-            return min(pos, self._track_length), self._track_length
+            return self._get_position_locked()
 
     def _rebuild_shuffle_queue_locked(self, exclude: int = -1) -> None:
         n = len(self._playlist)
@@ -225,8 +258,14 @@ class Player:
             try:
                 with self._lock:
                     if not self._playing or self._paused:
-                        continue
-                    busy = self._pygame.mixer.music.get_busy()
+                        skip = True
+                    else:
+                        skip = False
+                        busy = self._pygame.mixer.music.get_busy()
+
+                if skip:
+                    continue
+
                 if not busy:
                     with self._lock:
                         still_playing = self._playing

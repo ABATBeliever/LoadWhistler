@@ -44,10 +44,16 @@ def _version_tuple(v: str):
 
 def check_update(current_version: str) -> UpdateInfo:
     """同期的に更新を確認して UpdateInfo を返す。"""
+    import socket
     try:
-        req = urllib.request.Request(UPDATE_URL, headers={"User-Agent": "LoadWhistler-Updater"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
+        req = urllib.request.Request(UPDATE_URL, headers={"User-Agent": "LoadWhistler-Updater-v2-1-0"})
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(10)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+        finally:
+            socket.setdefaulttimeout(old_timeout)
     except urllib.error.HTTPError as e:
         return UpdateInfo(available=False, latest_version="", changelog="",
                           error=f"HTTP {e.code}")
